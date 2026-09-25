@@ -6,6 +6,10 @@
   let map = null;
   let dataLayer = null;
   let lastCenter = null;
+  // Height (px) of the bottom sheet floating over the map; the map keeps its
+  // points of interest centred in the clear area above it.
+  let sheetInset = 0;
+  let sheetObserver = null;
 
   const COLORS = {
     landmark: "#e4572e",
@@ -63,6 +67,57 @@
     map.on("click", (e) => onClick(e.latlng.lat, e.latlng.lng));
     // The container may be resized by the layout after first paint.
     new ResizeObserver(() => map.invalidateSize()).observe(el);
+    lockViewport();
+  }
+
+  /// Centre on a point within the clear area above the sheet.
+  function centerOn(lat, lon, zoom) {
+    const z = zoom ?? map.getZoom();
+    const pt = map.project([lat, lon], z).add([0, sheetInset / 2]);
+    const target = map.unproject(pt, z);
+    if (zoom != null) map.setView(target, z);
+    else map.panTo(target);
+  }
+
+  /// Follow the bottom sheet's height (null when closed): expose it to CSS as
+  /// --sheet-h and pan the map so its centre stays visible above the sheet.
+  function trackSheet(el) {
+    if (sheetObserver) sheetObserver.disconnect();
+    sheetObserver = null;
+    const apply = (h) => {
+      // On wide screens the sheet floats beside the content; no inset needed.
+      if (window.matchMedia("(min-width: 900px)").matches) h = 0;
+      const delta = h - sheetInset;
+      sheetInset = h;
+      document.documentElement.style.setProperty("--sheet-h", `${h}px`);
+      // Instant, not animated: an interrupted pan animation stops short and drifts.
+      if (map && delta) map.panBy([0, delta / 2], { animate: false });
+    };
+    if (!el) return apply(0);
+    // +8: the gap between the sheet and the toolbar (see .sheet in style.css).
+    const measure = () => el.isConnected && apply(el.offsetHeight + 8);
+    sheetObserver = new ResizeObserver(measure);
+    sheetObserver.observe(el);
+    measure(); // don't wait for the next frame's observer callback
+  }
+
+  /// iOS pans the whole page to make room for the keyboard or a native picker
+  /// and doesn't always put it back, leaving the app offset and draggable.
+  /// The page never scrolls by design, so snap it back and re-measure the map.
+  function lockViewport() {
+    const reset = () => {
+      if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
+      const se = document.scrollingElement;
+      if (se && (se.scrollTop || se.scrollLeft)) se.scrollTop = se.scrollLeft = 0;
+      if (map) map.invalidateSize();
+    };
+    window.addEventListener("scroll", reset, { passive: true });
+    // Belt and braces with the ResizeObserver: rotation, browser chrome
+    // showing/hiding, and window resizes must all re-measure the map.
+    window.addEventListener("resize", reset);
+    window.addEventListener("orientationchange", () => setTimeout(reset, 300));
+    document.addEventListener("focusout", () => setTimeout(reset, 50));
+    if (window.visualViewport) window.visualViewport.addEventListener("resize", () => setTimeout(reset, 50));
   }
 
   function update(el, geojson, lat, lon, onClick) {
@@ -94,8 +149,7 @@
 
     const key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
     if (key !== lastCenter) {
-      if (lastCenter === null) map.setView([lat, lon], 9);
-      else map.panTo([lat, lon]);
+      centerOn(lat, lon, lastCenter === null ? 9 : null);
       lastCenter = key;
     }
   }
@@ -208,6 +262,7 @@
 
   window.azimuthGlue = {
     update,
+    trackSheet,
     zonedTime,
     formatTime,
     zoneAbbrev,

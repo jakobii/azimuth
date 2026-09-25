@@ -250,6 +250,12 @@ pub fn App() -> impl IntoView {
         }
     });
 
+    // Tell the map how much of it the sheet covers.
+    let sheet_el = NodeRef::<leptos::html::Section>::new();
+    Effect::new(move |_| {
+        glue::track_sheet(st.tool.get().and(sheet_el.get()));
+    });
+
     let sheet = move || {
         let tool = st.tool.get()?;
         let body = match tool {
@@ -259,7 +265,7 @@ pub fn App() -> impl IntoView {
             Tool::Setup => view! { <SetupSheet st=st /> }.into_any(),
         };
         Some(view! {
-            <section class="sheet" role="dialog" aria-label=tool.label()>
+            <section class="sheet" role="dialog" aria-label=tool.label() node_ref=sheet_el>
                 <header class="sheet-head">
                     <h2>{tool.label()}</h2>
                     <button type="button" class="close" aria-label="Close" on:click=move |_| st.tool.set(None)>
@@ -276,6 +282,7 @@ pub fn App() -> impl IntoView {
             <div class="map-wrap">
                 <div class="map" class:picking=move || st.picking.get() node_ref=map_el></div>
                 <StatusChip st=st />
+                <MapKey />
                 <Show when=move || st.picking.get()>
                     <div class="banner">
                         "Tap the map to place the landmark"
@@ -337,6 +344,91 @@ fn StatusChip(st: State) -> impl IntoView {
                 }}
             </span>
         </button>
+    }
+}
+
+/// How a map feature is drawn; mirrors the styles in `public/glue.js`.
+#[derive(Clone, Copy)]
+enum Swatch {
+    /// Filled circle: fill, stroke.
+    Dot(&'static str, &'static str),
+    /// Line: colour, width, dash pattern (empty for solid).
+    Line(&'static str, f64, &'static str),
+    /// White line over a dark halo.
+    Selected,
+}
+
+impl Swatch {
+    fn view(self) -> impl IntoView {
+        let body = match self {
+            Swatch::Dot(fill, stroke) => view! {
+                <circle cx="16" cy="8" r="5.5" fill=fill stroke=stroke stroke-width="2" />
+            }
+            .into_any(),
+            Swatch::Line(color, width, dash) => view! {
+                <line x1="2" y1="8" x2="30" y2="8" stroke=color stroke-width=width stroke-dasharray=dash />
+            }
+            .into_any(),
+            Swatch::Selected => view! {
+                <line x1="2" y1="8" x2="30" y2="8" stroke="#111" stroke-opacity="0.35" stroke-width="5" />
+                <line x1="2" y1="8" x2="30" y2="8" stroke="#fff" stroke-width="2.5" />
+            }
+            .into_any(),
+        };
+        view! {
+            <svg class="map-key-swatch" viewBox="0 0 32 16" aria-hidden="true">
+                {body}
+            </svg>
+        }
+    }
+}
+
+#[rustfmt::skip]
+const KEY: &[(Swatch, &str, &str)] = &[
+    (Swatch::Dot("#e4572e", "#fff"), "Landmark", "The summit you're lining the moon up with."),
+    (Swatch::Line("#4f86f7", 4.0, ""), "Where to stand",
+        "Spots where the moon sits on the summit as it crosses the sky — far away when it's low, close when it's high."),
+    (Swatch::Line("#4f86f7", 1.5, "4 3"), "Hourly sight lines", "Each hour's standing spot joined to the summit."),
+    (Swatch::Selected, "Selected time", "From you, through the summit, toward the moon at the slider's time."),
+    (Swatch::Dot("#f5f5f5", "#111"), "You", "Where to stand at the slider's time."),
+    (Swatch::Line("#f2c14e", 3.0, "6 4"), "Moonrise", "Direction the moon rises, seen from the summit."),
+    (Swatch::Line("#c97b3d", 3.0, "6 4"), "Moonset", "Direction the moon sets, seen from the summit."),
+];
+
+/// Collapsible legend in the map's top-right corner.
+#[component]
+fn MapKey() -> impl IntoView {
+    let open = RwSignal::new(false);
+    view! {
+        <div class="map-key" class:open=move || open.get()>
+            <button
+                type="button"
+                class="map-key-toggle"
+                aria-expanded=move || open.get().to_string()
+                aria-controls="map-key-list"
+                on:click=move |_| open.update(|o| *o = !*o)
+            >
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 3 3 8l9 5 9-5-9-5zM3 13l9 5 9-5M3 18l9 5 9-5" />
+                </svg>
+                <span>"Key"</span>
+            </button>
+            <Show when=move || open.get()>
+                <dl id="map-key-list" class="map-key-list">
+                    {KEY
+                        .iter()
+                        .map(|&(swatch, name, desc)| {
+                            view! {
+                                <div class="map-key-row">
+                                    <dt>{swatch.view()} {name}</dt>
+                                    <dd>{desc}</dd>
+                                </div>
+                            }
+                        })
+                        .collect_view()}
+                </dl>
+            </Show>
+        </div>
     }
 }
 
@@ -604,14 +696,6 @@ fn MoonSheet(st: State) -> impl IntoView {
             }
         }}
         <HourTable st=st />
-        <p class="legend">
-            <span class="key path"></span>
-            "Where to stand "
-            <span class="key rise"></span>
-            "Moonrise "
-            <span class="key set"></span>
-            "Moonset"
-        </p>
         <button type="button" class="primary" on:click=download>
             "Download GeoJSON"
         </button>

@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
     <title>Azimuth — moon over landmarks</title>
     <meta name="description" content="Plan where to stand to photograph the moon over a landmark. Works offline." />
     <meta name="theme-color" content="#0e1320" />
@@ -14,11 +14,10 @@
 
     <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
     <script src="vendor/leaflet/leaflet.js"></script>
-    <script src="glue.js"></script>
+    <script data-trunk src="public/glue.js"></script>
 
     <link data-trunk rel="rust" data-wasm-opt="z" />
     <link data-trunk rel="css" href="style.css" />
-    <link data-trunk rel="copy-file" href="public/glue.js" />
     <link data-trunk rel="copy-file" href="public/sw.js" />
     <link data-trunk rel="copy-file" href="public/manifest.webmanifest" />
     <link data-trunk rel="copy-dir" href="public/icons" />

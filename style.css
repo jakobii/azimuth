@@ -1,14 +1,25 @@
 :root {
   --bg: #0e1320;
-  --panel: #151b2b;
-  --raised: #1d2538;
-  --line: #262f45;
-  --text: #e6e9f0;
-  --muted: #8d97ad;
-  --accent: #4f86f7;
+  --text: #eef1f6;
+  --muted: #b3bccd;
+  --accent: #5b8ff9;
   --moon: #f2c14e;
   --set: #c97b3d;
+
+  /* Frosted glass over the map. */
+  --glass: rgba(14, 19, 32, 0.52);
+  --glass-line: rgba(255, 255, 255, 0.14);
+  --glass-blur: blur(18px) saturate(160%);
+  --field: rgba(255, 255, 255, 0.07);
+  --field-line: rgba(255, 255, 255, 0.16);
+  --raised: rgba(255, 255, 255, 0.1);
+  --shadow: 0 8px 28px rgba(0, 0, 0, 0.3);
+
   --bar-h: 60px;
+  /* Everything that floats above the toolbar starts here. */
+  --bottom: calc(var(--bar-h) + env(safe-area-inset-bottom));
+  /* Height of the open bottom sheet (set by glue.js), 0 when closed. */
+  --sheet-h: 0px;
   color-scheme: dark;
 }
 
@@ -16,35 +27,31 @@
   box-sizing: border-box;
 }
 
+/* The page never scrolls: pinning it stops iOS rubber-banding and keeps the
+   app from being dragged around after the keyboard or a picker closes. */
 html,
 body {
+  position: fixed;
+  inset: 0;
   margin: 0;
-  height: 100%;
   overflow: hidden;
+  overscroll-behavior: none;
   background: var(--bg);
   color: var(--text);
   font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-tap-highlight-color: transparent;
 }
 
-/* ---- shell ----------------------------------------------------------- */
+/* ---- shell: full-screen map with overlays ---------------------------- */
 
-.app {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.map-wrap {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-}
-
+.app,
+.map-wrap,
 .map {
   position: absolute;
   inset: 0;
+}
+
+.map {
   background: #1b2233;
 }
 
@@ -54,6 +61,28 @@ body {
   cursor: crosshair;
 }
 
+.chip,
+.map-key-toggle,
+.map-key-list,
+.sheet,
+.toolbar {
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--shadow);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .chip,
+  .map-key-toggle,
+  .map-key-list,
+  .sheet,
+  .toolbar {
+    background: rgba(14, 19, 32, 0.9);
+  }
+}
+
 /* ---- floating status chip & banner ----------------------------------- */
 
 .chip {
@@ -61,7 +90,8 @@ body {
   z-index: 1000;
   top: calc(env(safe-area-inset-top) + 10px);
   left: 10px;
-  max-width: calc(100% - 70px);
+  max-width: calc(100% - 110px);
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -70,11 +100,7 @@ body {
   text-align: left;
   font-size: 13px;
   color: var(--muted);
-  background: rgba(21, 27, 43, 0.92);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(6px);
+  border-radius: 14px;
 }
 
 .chip strong {
@@ -86,17 +112,19 @@ body {
   position: absolute;
   z-index: 1000;
   left: 50%;
-  bottom: 16px;
+  bottom: calc(var(--bottom) + 16px);
   transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 8px 8px 8px 14px;
   white-space: nowrap;
-  background: var(--accent);
+  background: rgba(91, 143, 249, 0.85);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
   color: #fff;
   border-radius: 999px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow);
 }
 
 .banner button {
@@ -104,23 +132,22 @@ body {
   padding: 4px 12px;
   border-radius: 999px;
   border: 0;
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.22);
   color: #fff;
 }
 
 /* ---- bottom sheet ----------------------------------------------------- */
 
 .sheet {
-  flex: none;
-  max-height: 50dvh;
+  position: absolute;
+  z-index: 1001;
+  left: 8px;
+  right: 8px;
+  bottom: calc(var(--bottom) + 8px);
+  max-height: min(52dvh, calc(100dvh - var(--bottom) - 96px));
   display: flex;
   flex-direction: column;
-  background: var(--panel);
-  border-top: 1px solid var(--line);
-  border-radius: 16px 16px 0 0;
-  position: relative;
-  z-index: 1001;
-  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.35);
+  border-radius: 20px;
   animation: sheet-in 160ms ease-out;
 }
 
@@ -135,7 +162,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px 4px 16px;
+  padding: 10px 10px 2px 16px;
 }
 
 .sheet-head h2 {
@@ -149,6 +176,7 @@ body {
 
 .close {
   width: 36px;
+  min-height: 36px;
   height: 36px;
   padding: 0;
   font-size: 22px;
@@ -160,6 +188,7 @@ body {
 }
 
 .sheet-body {
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 4px 16px 16px;
@@ -171,15 +200,17 @@ body {
 /* ---- toolbar ---------------------------------------------------------- */
 
 .toolbar {
-  flex: none;
-  position: relative;
+  position: absolute;
   z-index: 1002;
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  height: calc(var(--bar-h) + env(safe-area-inset-bottom));
+  height: var(--bottom);
   padding: 0 8px env(safe-area-inset-bottom);
-  background: var(--panel);
-  border-top: 1px solid var(--line);
+  border-width: 1px 0 0;
+  box-shadow: none;
 }
 
 .tool {
@@ -188,8 +219,9 @@ body {
   align-items: center;
   justify-content: center;
   gap: 2px;
+  min-height: 0;
   border: 0;
-  border-radius: 12px;
+  border-radius: 14px;
   margin: 6px 4px;
   padding: 0;
   background: transparent;
@@ -218,7 +250,7 @@ body {
 }
 
 .icon .fill {
-  fill: var(--panel);
+  fill: var(--bg);
 }
 
 /* ---- form controls ---------------------------------------------------- */
@@ -245,12 +277,21 @@ button {
   font: inherit;
   font-size: 16px; /* ≥16px stops iOS zooming on focus */
   color: var(--text);
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  background: var(--field);
+  border: 1px solid var(--field-line);
+  border-radius: 12px;
   padding: 8px 10px;
   min-height: 44px;
   min-width: 0;
+}
+
+select option {
+  background: var(--bg);
+}
+
+input::placeholder {
+  color: var(--muted);
+  opacity: 0.8;
 }
 
 label > input,
@@ -272,7 +313,7 @@ button:focus-visible {
 
 .primary {
   background: var(--accent);
-  border-color: var(--accent);
+  border-color: transparent;
   color: #fff;
   font-weight: 600;
 }
@@ -311,6 +352,7 @@ button:focus-visible {
   font-weight: 300;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.35);
 }
 
 .clock small {
@@ -384,7 +426,7 @@ button:focus-visible {
 .hours td {
   text-align: left;
   padding: 6px 4px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--glass-line);
 }
 
 .hours tbody tr {
@@ -395,38 +437,80 @@ button:focus-visible {
   background: var(--raised);
 }
 
-.legend {
-  margin: 0;
-  font-size: 13px;
-  color: var(--muted);
+/* ---- map key ---------------------------------------------------------- */
+
+.map-key {
+  position: absolute;
+  z-index: 1001;
+  top: calc(env(safe-area-inset-top) + 10px);
+  right: 10px;
+  /* Stay above the sheet, toolbar and the OSM attribution. */
+  bottom: calc(var(--bottom) + var(--sheet-h) + 28px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none; /* the box spans the map; only its children take taps */
 }
 
-.key {
-  display: inline-block;
-  width: 18px;
-  height: 0;
-  margin: 0 5px 0 0;
-  vertical-align: middle;
-  border-top: 3px solid;
+.map-key > * {
+  pointer-events: auto;
 }
 
-.key + .key,
-.legend .key:not(:first-child) {
-  margin-left: 8px;
+.map-key-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px 6px 10px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 14px;
 }
 
-.key.path {
+.map-key.open .map-key-toggle {
   border-color: var(--accent);
 }
 
-.key.rise {
-  border-top-style: dashed;
-  border-color: var(--moon);
+.map-key.open .map-key-toggle .icon {
+  stroke: var(--accent);
 }
 
-.key.set {
-  border-top-style: dashed;
-  border-color: var(--set);
+.map-key-list {
+  margin: 0;
+  min-height: 0; /* let it scroll when the map is short */
+  width: min(300px, calc(100vw - 20px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-radius: 16px;
+  animation: sheet-in 140ms ease-out;
+}
+
+.map-key-row dt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.map-key-row dd {
+  margin: 2px 0 0 40px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.map-key-swatch {
+  flex: none;
+  width: 32px;
+  height: 16px;
+  /* Light map backdrop so white and dark strokes read as on the map. */
+  background: #dfe3d6;
+  border-radius: 4px;
 }
 
 /* ---- leaflet tweaks --------------------------------------------------- */
@@ -435,26 +519,41 @@ button:focus-visible {
   font-size: 13px;
 }
 
+/* Zoom buttons sit below the map key toggle. */
 .leaflet-top.leaflet-right {
-  top: env(safe-area-inset-top);
+  top: calc(env(safe-area-inset-top) + 56px);
 }
 
-/* ---- wide screens: sheet floats over the map ------------------------- */
+/* Scale and attribution ride above the toolbar and any open sheet. */
+.leaflet-bottom {
+  bottom: calc(var(--bottom) + var(--sheet-h));
+}
+
+/* ---- wide screens: floating sheet and toolbar ------------------------ */
 
 @media (min-width: 900px) {
+  :root {
+    --bottom: 84px;
+  }
+
   .sheet {
-    position: absolute;
     left: 12px;
-    bottom: calc(var(--bar-h) + 12px);
+    right: auto;
+    bottom: calc(var(--bottom) + 4px);
     width: 380px;
-    max-height: calc(100dvh - var(--bar-h) - 120px);
-    margin: 0;
-    border: 1px solid var(--line);
-    border-radius: 16px;
+    max-height: calc(100dvh - var(--bottom) - 90px);
   }
 
   .toolbar {
+    left: 50%;
+    right: auto;
+    bottom: 12px;
+    height: var(--bar-h);
+    transform: translateX(-50%);
     grid-template-columns: repeat(4, 96px);
-    justify-content: center;
+    padding: 0 6px;
+    border-width: 1px;
+    border-radius: 20px;
+    box-shadow: var(--shadow);
   }
 }

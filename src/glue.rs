@@ -13,6 +13,11 @@ extern "C" {
         on_click: &js_sys::Function,
     );
 
+    /// Report the bottom sheet element (or `None` when closed) so the map can
+    /// keep its centre visible above it.
+    #[wasm_bindgen(js_namespace = azimuthGlue, js_name = trackSheet)]
+    pub fn track_sheet(el: Option<web_sys::HtmlElement>);
+
     #[wasm_bindgen(js_namespace = azimuthGlue, js_name = zonedTime)]
     pub fn zoned_time(date: &str, minutes: f64, tz: &str) -> f64;
 
