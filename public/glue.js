@@ -52,7 +52,8 @@
   }
 
   function init(el, onClick) {
-    map = L.map(el, { zoomControl: true, worldCopyJump: true });
+    map = L.map(el, { zoomControl: false, worldCopyJump: true });
+    L.control.zoom({ position: "topright" }).addTo(map);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       crossOrigin: "anonymous", // CORS responses can be cached without opaque-response quota padding
