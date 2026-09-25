@@ -1,0 +1,9 @@
+[build]
+target = "index.html"
+dist = "dist"
+
+# Fill the service worker's precache list with the (hashed) build output.
+[[hooks]]
+stage = "post_build"
+command = "sh"
+command_arguments = ["scripts/sw-manifest.sh"]

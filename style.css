@@ -1,0 +1,287 @@
+:root {
+  --bg: #0e1320;
+  --panel: #151b2b;
+  --line: #262f45;
+  --text: #e6e9f0;
+  --muted: #8d97ad;
+  --accent: #4f86f7;
+  --moon: #f2c14e;
+  --set: #c97b3d;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  height: 100dvh;
+}
+
+.panel {
+  overflow-y: auto;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.map {
+  height: 100%;
+  min-height: 300px;
+  background: #1b2233;
+}
+
+.map.picking {
+  cursor: crosshair;
+}
+
+.map.picking .leaflet-interactive,
+.map.picking .leaflet-grab {
+  cursor: crosshair;
+}
+
+h1 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: 0.02em;
+}
+
+.tagline,
+.hint {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+fieldset {
+  margin: 0;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+legend {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12.5px;
+  color: var(--muted);
+  flex: 1;
+  min-width: 0;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+input,
+select,
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  min-width: 0;
+}
+
+label > input,
+label > select {
+  width: 100%;
+}
+
+input[type="range"] {
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+input:focus,
+select:focus,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+button {
+  cursor: pointer;
+  background: #1d2538;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.search {
+  display: flex;
+  gap: 6px;
+}
+
+.search input {
+  flex: 1;
+  width: 0;
+}
+
+.now {
+  flex: 0 0 auto;
+}
+
+.time {
+  font-size: 22px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.time small {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.readout dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.readout dt {
+  color: var(--muted);
+}
+
+.readout dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.events {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.event {
+  font-size: 12.5px;
+}
+
+.hours summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.hours table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 6px;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hours th,
+.hours td {
+  text-align: left;
+  padding: 3px 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.hours tbody tr {
+  cursor: pointer;
+}
+
+.hours tbody tr:hover {
+  background: #1d2538;
+}
+
+.download {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+footer p {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+}
+
+.key {
+  display: inline-block;
+  width: 18px;
+  height: 0;
+  margin-right: 5px;
+  vertical-align: middle;
+  border-top: 3px solid;
+}
+
+.key.path {
+  border-color: var(--accent);
+}
+
+.key.rise {
+  border-top-style: dashed;
+  border-color: var(--moon);
+}
+
+.key.set {
+  border-top-style: dashed;
+  border-color: var(--set);
+}
+
+.leaflet-tooltip {
+  font-size: 12.5px;
+}
+
+@media (max-width: 760px) {
+  .layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: 50dvh auto;
+    height: auto;
+  }
+
+  .map {
+    grid-row: 1;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+
+  .panel {
+    grid-row: 2;
+    border-right: 0;
+    border-top: 1px solid var(--line);
+    overflow: visible;
+  }
+}
