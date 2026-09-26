@@ -425,6 +425,8 @@ enum Swatch {
     Line(&'static str, f64, &'static str),
     /// White line over a dark halo.
     Selected,
+    /// The camera badge marking where to stand.
+    Camera,
 }
 
 impl Swatch {
@@ -443,6 +445,14 @@ impl Swatch {
                 <line x1="2" y1="8" x2="30" y2="8" stroke="#fff" stroke-width="2.5" />
             }
             .into_any(),
+            Swatch::Camera => view! {
+                <circle cx="16" cy="8" r="7.5" fill="#fff" stroke="#111" stroke-opacity="0.2" />
+                <g transform="translate(10.6 2.6) scale(0.45)" fill="none" stroke="#111" stroke-width="2.2" stroke-linejoin="round">
+                    <path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" />
+                    <circle cx="12" cy="13" r="3.5" />
+                </g>
+            }
+            .into_any(),
         };
         view! {
             <svg class="map-key-swatch" viewBox="0 0 32 16" aria-hidden="true">
@@ -459,7 +469,7 @@ const KEY: &[(Swatch, &str, &str)] = &[
         "Spots where the moon sits on the summit as it crosses the sky — far away when it's low, close when it's high."),
     (Swatch::Line("#4f86f7", 1.5, "4 3"), "Hourly sight lines", "Each hour's standing spot joined to the summit."),
     (Swatch::Selected, "Selected time", "From you, through the summit, toward the moon at the slider's time."),
-    (Swatch::Dot("#f5f5f5", "#111"), "You", "Where to stand at the slider's time."),
+    (Swatch::Camera, "You", "Where to stand at the slider's time."),
     (Swatch::Line("#f2c14e", 3.0, "6 4"), "Moonrise", "Direction the moon rises, seen from the summit."),
     (Swatch::Line("#c97b3d", 3.0, "6 4"), "Moonset", "Direction the moon sets, seen from the summit."),
 ];

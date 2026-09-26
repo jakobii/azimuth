@@ -107,7 +107,7 @@ body {
   z-index: 1001;
   top: calc(env(safe-area-inset-top) + 10px);
   left: 10px;
-  right: 64px; /* clear of the zoom buttons */
+  right: 10px;
   bottom: calc(var(--bottom) + var(--sheet-h) + 48px); /* clear of the scale bar */
   display: flex;
   flex-direction: column;
@@ -532,24 +532,79 @@ button:focus-visible {
 
 /* ---- leaflet tweaks --------------------------------------------------- */
 
+/* Camera badge marking where to stand. */
+.stand-icon {
+  display: grid;
+  place-items: center;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px rgba(17, 24, 39, 0.85), 0 3px 10px rgba(0, 0, 0, 0.35);
+}
+
+.stand-icon svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: #111827;
+  stroke-width: 1.9;
+  stroke-linejoin: round;
+}
+
 .leaflet-tooltip {
   font-size: 13px;
 }
 
-.leaflet-top.leaflet-right {
-  top: env(safe-area-inset-top);
+/* Scale bar and credits sit in the bottom corners, just above the toolbar;
+   an open sheet floats over them. */
+.leaflet-bottom {
+  bottom: var(--bottom);
 }
 
-/* Scale and attribution ride above the toolbar and any open sheet. */
-.leaflet-bottom {
-  bottom: calc(var(--bottom) + var(--sheet-h));
+/* Credits collapse to a faint ⓘ after a few seconds (see glue.js). */
+.attr-toggle {
+  display: none;
+  width: 28px;
+  height: 28px;
+  min-height: 0;
+  margin: 0 8px 8px 0;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  opacity: 0.55;
+  transition: opacity 150ms;
+}
+
+.attr-toggle:hover,
+.attr-toggle:focus-visible {
+  opacity: 1;
+}
+
+.attr-toggle svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.attr-hidden .leaflet-control-attribution {
+  display: none;
+}
+
+.attr-hidden .attr-toggle {
+  display: grid;
 }
 
 /* ---- wide screens: floating sheet and toolbar ------------------------ */
 
 @media (min-width: 900px) {
   :root {
-    --bottom: 84px;
+    --bottom: 90px;
   }
 
   /* Centred above the toolbar that opened it. Auto margins, not a
@@ -563,20 +618,22 @@ button:focus-visible {
     max-height: min(56dvh, calc(100dvh - var(--bottom) - 90px));
   }
 
-  /* The centred sheet doesn't reach the corners, so the attribution, scale
-     and left column only need to clear the toolbar. */
+  /* The toolbar is a centred pill here, so the scale bar and credits can sit
+     right in the bottom corners. */
   .leaflet-bottom {
-    bottom: var(--bottom);
+    bottom: 0;
   }
 
+  /* The centred sheet doesn't reach the corners, so the left column only
+     needs to clear the scale bar. */
   .overlay-left {
-    bottom: calc(var(--bottom) + 48px);
+    bottom: 48px;
   }
 
   .toolbar {
     left: 50%;
     right: auto;
-    bottom: 12px;
+    bottom: 18px; /* clears the one-line credits in the corner */
     height: var(--bar-h);
     transform: translateX(-50%);
     grid-template-columns: repeat(4, 96px);

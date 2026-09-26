@@ -21,6 +21,18 @@
     observer: "#f5f5f5",
   };
 
+  // Where to stand: a camera badge (same glyph as the map key's "You").
+  const CAMERA_ICON = L.divIcon({
+    className: "stand-icon",
+    html:
+      '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+      '<path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/>' +
+      '<circle cx="12" cy="13" r="3.5"/></svg>',
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+    tooltipAnchor: [16, 0],
+  });
+
   function style(feature) {
     const k = feature.properties.kind;
     switch (k) {
@@ -56,8 +68,8 @@
   }
 
   function init(el, onClick) {
+    // No zoom buttons: pinch, wheel, double-tap and +/- keys all zoom.
     map = L.map(el, { zoomControl: false, worldCopyJump: true });
-    L.control.zoom({ position: "topright" }).addTo(map);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       crossOrigin: "anonymous", // CORS responses can be cached without opaque-response quota padding
@@ -67,10 +79,42 @@
     map.attributionControl.addAttribution(
       'Terrain: <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md">Mapzen, AWS</a>'
     );
+    collapsibleAttribution(el);
     map.on("click", (e) => onClick(e.latlng.lat, e.latlng.lng));
     // The container may be resized by the layout after first paint.
     new ResizeObserver(() => map.invalidateSize()).observe(el);
     lockViewport();
+  }
+
+  // Show the attribution when the map appears, then tuck it behind an ⓘ
+  // button (the OSMF attribution guidelines allow this for interactive maps
+  // once it has been shown for a few seconds). Tapping ⓘ shows it again.
+  const ATTRIBUTION_MS = 5000;
+
+  function collapsibleAttribution(el) {
+    let timer = null;
+    const show = () => {
+      el.classList.remove("attr-hidden");
+      clearTimeout(timer);
+      timer = setTimeout(() => el.classList.add("attr-hidden"), ATTRIBUTION_MS);
+    };
+    const Info = L.Control.extend({
+      options: { position: "bottomright" },
+      onAdd() {
+        const btn = L.DomUtil.create("button", "attr-toggle");
+        btn.type = "button";
+        btn.title = "Map data credits";
+        btn.setAttribute("aria-label", "Map data credits");
+        btn.innerHTML =
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/>' +
+          '<path d="M12 11v6M12 7.5v.5"/></svg>';
+        L.DomEvent.disableClickPropagation(btn);
+        L.DomEvent.on(btn, "click", show);
+        return btn;
+      },
+    });
+    new Info().addTo(map);
+    show();
   }
 
   /// Centre on a point within the clear area above the sheet.
@@ -83,16 +127,14 @@
   }
 
   /// Follow the bottom sheet's height (null when closed): expose it to CSS as
-  /// --sheet-h and pan the map so its centre stays visible above the sheet.
+  /// --sheet-h so map controls ride above it. The map itself stays put — the
+  /// sheet is translucent — and only new landmarks centre above it.
   function trackSheet(el) {
     if (sheetObserver) sheetObserver.disconnect();
     sheetObserver = null;
     const apply = (h) => {
-      const delta = h - sheetInset;
       sheetInset = h;
       document.documentElement.style.setProperty("--sheet-h", `${h}px`);
-      // Instant, not animated: an interrupted pan animation stops short and drifts.
-      if (map && delta) map.panBy([0, delta / 2], { animate: false });
     };
     if (!el) return apply(0);
     // +8: the gap between the sheet and the toolbar (see .sheet in style.css).
@@ -133,7 +175,7 @@
         if (k === "landmark") {
           return L.circleMarker(latlng, { radius: 8, color: "#fff", weight: 2, fillColor: COLORS.landmark, fillOpacity: 1 });
         }
-        return L.circleMarker(latlng, { radius: 7, color: "#111", weight: 2, fillColor: "#f5f5f5", fillOpacity: 1 });
+        return L.marker(latlng, { icon: CAMERA_ICON, keyboard: false });
       },
       onEachFeature(feature, layer) {
         layer.bindTooltip(describe(feature.properties), { sticky: feature.geometry.type !== "Point" });
