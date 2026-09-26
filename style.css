@@ -1,26 +1,39 @@
 :root {
   --bg: #0e1320;
-  --text: #eef1f6;
-  --muted: #b3bccd;
-  --accent: #5b8ff9;
+  /* Dark text on light glass: OSM tiles are mostly pale, so this keeps
+     contrast high (>10:1) wherever the map shows through. */
+  --text: #111827;
+  --muted: #3b4557;
+  --surface: #ffffff;
+  --accent: #2563eb;
   --moon: #f2c14e;
   --set: #c97b3d;
 
-  /* Frosted glass over the map. */
-  --glass: rgba(14, 19, 32, 0.52);
-  --glass-line: rgba(255, 255, 255, 0.14);
-  --glass-blur: blur(18px) saturate(160%);
-  --field: rgba(255, 255, 255, 0.07);
-  --field-line: rgba(255, 255, 255, 0.16);
-  --raised: rgba(255, 255, 255, 0.1);
-  --shadow: 0 8px 28px rgba(0, 0, 0, 0.3);
+  /* Glass over the map: a light tint with a sheen, blurred and saturated. */
+  --glass: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.4),
+    rgba(255, 255, 255, 0.12) 45%,
+    rgba(255, 255, 255, 0.2)
+  ),
+    rgba(255, 255, 255, 0.3);
+  --glass-line: rgba(255, 255, 255, 0.6);
+  --glass-blur: blur(8px) saturate(180%);
+  --field: rgba(255, 255, 255, 0.4);
+  --field-line: rgba(17, 24, 39, 0.14);
+  --raised: rgba(255, 255, 255, 0.5);
+  /* Neutral focus ring; selection is shown with --raised, not colour. */
+  --focus: rgba(17, 24, 39, 0.4);
+  --shadow: 0 8px 28px rgba(15, 23, 42, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  /* Keeps text legible when bright map tiles show through the glass. */
+  --legible: 0 0 8px rgba(255, 255, 255, 0.6);
 
   --bar-h: 60px;
   /* Everything that floats above the toolbar starts here. */
   --bottom: calc(var(--bar-h) + env(safe-area-inset-bottom));
   /* Height of the open bottom sheet (set by glue.js), 0 when closed. */
   --sheet-h: 0px;
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 * {
@@ -71,6 +84,7 @@ body {
   backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-line);
   box-shadow: var(--shadow);
+  text-shadow: var(--legible);
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -79,18 +93,37 @@ body {
   .map-key-list,
   .sheet,
   .toolbar {
-    background: rgba(14, 19, 32, 0.9);
+    background: rgba(255, 255, 255, 0.9);
   }
 }
 
 /* ---- floating status chip & banner ----------------------------------- */
 
-.chip {
+/* Left column over the map: status chip with the map key beneath it. It
+   spans from the top down to just above the sheet/attribution; only its
+   children take taps. */
+.overlay-left {
   position: absolute;
-  z-index: 1000;
+  z-index: 1001;
   top: calc(env(safe-area-inset-top) + 10px);
   left: 10px;
-  max-width: calc(100% - 110px);
+  right: 64px; /* clear of the zoom buttons */
+  bottom: calc(var(--bottom) + var(--sheet-h) + 48px); /* clear of the scale bar */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.overlay-left > *,
+.map-key > * {
+  pointer-events: auto;
+}
+
+.chip {
+  flex: none;
+  max-width: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -210,7 +243,7 @@ body {
   height: var(--bottom);
   padding: 0 8px env(safe-area-inset-bottom);
   border-width: 1px 0 0;
-  box-shadow: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .tool {
@@ -235,10 +268,6 @@ body {
   background: var(--raised);
 }
 
-.tool.active .icon {
-  stroke: var(--accent);
-}
-
 .icon {
   width: 24px;
   height: 24px;
@@ -250,7 +279,7 @@ body {
 }
 
 .icon .fill {
-  fill: var(--bg);
+  fill: var(--surface);
 }
 
 /* ---- form controls ---------------------------------------------------- */
@@ -286,7 +315,7 @@ button {
 }
 
 select option {
-  background: var(--bg);
+  background: var(--surface);
 }
 
 input::placeholder {
@@ -307,7 +336,7 @@ button {
 input:focus,
 select:focus,
 button:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
 
@@ -352,7 +381,6 @@ button:focus-visible {
   font-weight: 300;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
-  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.35);
 }
 
 .clock small {
@@ -440,21 +468,12 @@ button:focus-visible {
 /* ---- map key ---------------------------------------------------------- */
 
 .map-key {
-  position: absolute;
-  z-index: 1001;
-  top: calc(env(safe-area-inset-top) + 10px);
-  right: 10px;
-  /* Stay above the sheet, toolbar and the OSM attribution. */
-  bottom: calc(var(--bottom) + var(--sheet-h) + 28px);
+  min-height: 0; /* shrink so the list scrolls when the map is short */
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: 8px;
-  pointer-events: none; /* the box spans the map; only its children take taps */
-}
-
-.map-key > * {
-  pointer-events: auto;
+  pointer-events: none; /* only the toggle and list take taps */
 }
 
 .map-key-toggle {
@@ -467,18 +486,15 @@ button:focus-visible {
   border-radius: 14px;
 }
 
+/* Open: same neutral highlight as the active tool. */
 .map-key.open .map-key-toggle {
-  border-color: var(--accent);
-}
-
-.map-key.open .map-key-toggle .icon {
-  stroke: var(--accent);
+  background: var(--raised);
 }
 
 .map-key-list {
   margin: 0;
   min-height: 0; /* let it scroll when the map is short */
-  width: min(300px, calc(100vw - 20px));
+  width: min(300px, 100%);
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 12px 14px;
@@ -509,8 +525,9 @@ button:focus-visible {
   width: 32px;
   height: 16px;
   /* Light map backdrop so white and dark strokes read as on the map. */
-  background: #dfe3d6;
+  background: #d5dccb;
   border-radius: 4px;
+  box-shadow: inset 0 0 0 1px rgba(17, 24, 39, 0.14);
 }
 
 /* ---- leaflet tweaks --------------------------------------------------- */
@@ -519,9 +536,8 @@ button:focus-visible {
   font-size: 13px;
 }
 
-/* Zoom buttons sit below the map key toggle. */
 .leaflet-top.leaflet-right {
-  top: calc(env(safe-area-inset-top) + 56px);
+  top: env(safe-area-inset-top);
 }
 
 /* Scale and attribution ride above the toolbar and any open sheet. */
@@ -536,12 +552,25 @@ button:focus-visible {
     --bottom: 84px;
   }
 
+  /* Centred above the toolbar that opened it. Auto margins, not a
+     transform, so the slide-in animation's transform doesn't fight it. */
   .sheet {
-    left: 12px;
-    right: auto;
+    left: 0;
+    right: 0;
+    margin: 0 auto;
     bottom: calc(var(--bottom) + 4px);
-    width: 380px;
-    max-height: calc(100dvh - var(--bottom) - 90px);
+    width: min(440px, calc(100% - 24px));
+    max-height: min(56dvh, calc(100dvh - var(--bottom) - 90px));
+  }
+
+  /* The centred sheet doesn't reach the corners, so the attribution, scale
+     and left column only need to clear the toolbar. */
+  .leaflet-bottom {
+    bottom: var(--bottom);
+  }
+
+  .overlay-left {
+    bottom: calc(var(--bottom) + 48px);
   }
 
   .toolbar {

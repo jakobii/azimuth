@@ -18,6 +18,10 @@ extern "C" {
     #[wasm_bindgen(js_namespace = azimuthGlue, js_name = trackSheet)]
     pub fn track_sheet(el: Option<web_sys::HtmlElement>);
 
+    /// Current Leaflet zoom level.
+    #[wasm_bindgen(js_namespace = azimuthGlue, js_name = mapZoom)]
+    pub fn map_zoom() -> f64;
+
     #[wasm_bindgen(js_namespace = azimuthGlue, js_name = zonedTime)]
     pub fn zoned_time(date: &str, minutes: f64, tz: &str) -> f64;
 
@@ -38,6 +42,9 @@ extern "C" {
 
     #[wasm_bindgen(js_namespace = azimuthGlue)]
     pub fn download(filename: &str, text: &str);
+
+    #[wasm_bindgen(js_namespace = azimuthGlue, js_name = fetchBytes, catch)]
+    fn fetch_bytes_raw(url: &str) -> Result<js_sys::Promise, JsValue>;
 
     #[wasm_bindgen(js_namespace = azimuthGlue, js_name = search, catch)]
     fn search_raw(q: &str) -> Result<js_sys::Promise, JsValue>;
@@ -73,4 +80,13 @@ pub async fn search(q: &str) -> Result<Option<SearchHit>, String> {
         lon: j["lon"].as_f64().ok_or("bad lon")?,
         ele: j["ele"].as_f64(),
     }))
+}
+
+/// GET a URL's body as bytes.
+pub async fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
+    let promise = fetch_bytes_raw(url).map_err(|e| format!("{e:?}"))?;
+    let v = wasm_bindgen_futures::JsFuture::from(promise)
+        .await
+        .map_err(|e| format!("fetch failed: {e:?}"))?;
+    Ok(js_sys::Uint8Array::new(&v).to_vec())
 }

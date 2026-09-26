@@ -5,7 +5,9 @@
 //! the moon's apparent altitude. Standing there puts the moon on the summit.
 
 use crate::astro::{self, Crossing, MoonState};
+use crate::terrain::{Ground, TileId};
 use serde_json::{Value, json};
+use std::collections::BTreeSet;
 
 const EARTH_RADIUS_M: f64 = 6_371_000.0;
 /// Standard terrestrial refraction coefficient.
@@ -14,6 +16,10 @@ const REFRACTION_K: f64 = 0.13;
 pub const MAX_STAND_KM: f64 = 250.0;
 const MOON_RAY_KM: f64 = 60.0;
 const SAMPLE_MINUTES: f64 = 5.0;
+/// Camera height above the ground.
+pub const EYE_HEIGHT_M: f64 = 1.7;
+/// Ground assumed where terrain isn't available (offline, not yet loaded).
+pub const FALLBACK_GROUND_M: f64 = 500.0;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Landmark {
@@ -34,11 +40,19 @@ pub enum Align {
     Resting,
 }
 
+/// Where the observer's eye is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Observer {
+    /// On the ground at each standing spot, looked up from terrain.
+    Terrain,
+    /// A fixed elevation (metres above sea level), e.g. on a tower.
+    Fixed(f64),
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Inputs {
     pub landmark: Landmark,
-    /// Observer eye elevation, metres above sea level.
-    pub observer_elev_m: f64,
+    pub observer: Observer,
     pub align: Align,
     /// Unix ms of local midnight starting the day.
     pub day_start: f64,
@@ -53,6 +67,8 @@ pub struct Stand {
     pub lat: f64,
     pub lon: f64,
     pub distance_km: f64,
+    /// Ground elevation at the spot, when it came from terrain.
+    pub ground_m: Option<f64>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -67,6 +83,20 @@ pub struct Plan {
     pub samples: Vec<Sample>,
     pub events: Vec<(Crossing, f64)>,
     pub selected: Sample,
+    /// Terrain tiles the solution wanted but didn't have yet.
+    pub missing: BTreeSet<TileId>,
+    /// Spots that fell back to [`FALLBACK_GROUND_M`] for lack of terrain.
+    pub assumed: usize,
+}
+
+/// Ground lookup used while solving; see [`crate::terrain::Terrain::ground`].
+pub type GroundFn<'a> = &'a dyn Fn(f64, f64) -> Ground;
+
+/// Accumulates what the solver learned about terrain coverage.
+#[derive(Default)]
+struct Needs {
+    missing: BTreeSet<TileId>,
+    assumed: usize,
 }
 
 /// Great-circle destination from a start point, bearing (deg) and distance.
@@ -93,7 +123,61 @@ pub fn stand_distance_m(rise_m: f64, angle_deg: f64) -> Option<f64> {
     (d > 0.0 && d <= MAX_STAND_KM * 1000.0).then_some(d)
 }
 
-fn sample(inp: &Inputs, t: f64) -> Sample {
+/// Find where to stand, looking back along `azimuth + 180°` from the summit,
+/// so that the summit appears at `target` degrees of elevation.
+///
+/// With terrain, the observer's height depends on where they stand, which
+/// depends on their height: iterate (damped) until the spot settles.
+fn solve_stand(
+    lm: &Landmark,
+    observer: Observer,
+    azimuth: f64,
+    target: f64,
+    ground: GroundFn,
+    needs: &mut Needs,
+) -> Option<Stand> {
+    let place = |d: f64, ground_m: Option<f64>| {
+        let (lat, lon) = destination(lm.lat, lm.lon, azimuth + 180.0, d);
+        Stand { lat, lon, distance_km: d / 1000.0, ground_m }
+    };
+    let eye = match observer {
+        Observer::Fixed(h) => {
+            return stand_distance_m(lm.elevation_m - h, target).map(|d| place(d, None));
+        }
+        Observer::Terrain => FALLBACK_GROUND_M,
+    };
+
+    let mut ground_m = eye;
+    let mut last: Option<f64> = None;
+    for i in 0..10 {
+        let d = stand_distance_m(lm.elevation_m - ground_m - EYE_HEIGHT_M, target)?;
+        let spot = place(d, None);
+        match ground(spot.lat, spot.lon) {
+            Ground::Known(g) => {
+                if last.is_some_and(|prev| (d - prev).abs() < 25.0) {
+                    return Some(Stand { ground_m: Some(g), ..spot });
+                }
+                last = Some(d);
+                // Damp after a few rounds so rugged terrain can't ping-pong.
+                ground_m = if i < 3 { g } else { (ground_m + g) / 2.0 };
+            }
+            Ground::Pending(tile) => {
+                needs.missing.insert(tile);
+                needs.assumed += 1;
+                return Some(spot);
+            }
+            Ground::Unknown => {
+                needs.assumed += 1;
+                return Some(spot);
+            }
+        }
+    }
+    // Didn't settle within 10 rounds: take the last estimate.
+    let d = stand_distance_m(lm.elevation_m - ground_m - EYE_HEIGHT_M, target)?;
+    Some(Stand { ground_m: Some(ground_m), ..place(d, None) })
+}
+
+fn sample(inp: &Inputs, t: f64, ground: GroundFn, needs: &mut Needs) -> Sample {
     let lm = &inp.landmark;
     let moon = astro::moon(t, lm.lat, lm.lon);
     let sun_alt = astro::sun(t, lm.lat, lm.lon).altitude;
@@ -102,26 +186,24 @@ fn sample(inp: &Inputs, t: f64) -> Sample {
         Align::Resting => moon.pos.altitude - moon.diameter / 2.0,
     };
     let stand = (moon.pos.altitude > astro::MOON_HORIZON)
-        .then(|| stand_distance_m(lm.elevation_m - inp.observer_elev_m, target))
-        .flatten()
-        .map(|d| {
-            let (lat, lon) = destination(lm.lat, lm.lon, moon.pos.azimuth + 180.0, d);
-            Stand { lat, lon, distance_km: d / 1000.0 }
-        });
+        .then(|| solve_stand(lm, inp.observer, moon.pos.azimuth, target, ground, needs))
+        .flatten();
     Sample { t, moon, sun_alt, stand }
 }
 
-pub fn compute(inp: &Inputs) -> Plan {
+pub fn compute(inp: &Inputs, ground: GroundFn) -> Plan {
+    let mut needs = Needs::default();
     let step = SAMPLE_MINUTES * 60_000.0;
     let n = ((inp.day_end - inp.day_start) / step).ceil() as usize;
     let samples = (0..=n)
-        .map(|i| sample(inp, (inp.day_start + i as f64 * step).min(inp.day_end)))
+        .map(|i| sample(inp, (inp.day_start + i as f64 * step).min(inp.day_end), ground, &mut needs))
         .collect();
     let lm = &inp.landmark;
     let events = astro::crossings(inp.day_start, inp.day_end, astro::MOON_HORIZON, |t| {
         astro::moon(t, lm.lat, lm.lon).pos.altitude
     });
-    Plan { samples, events, selected: sample(inp, inp.selected) }
+    let selected = sample(inp, inp.selected, ground, &mut needs);
+    Plan { samples, events, selected, missing: needs.missing, assumed: needs.assumed }
 }
 
 fn pt(lat: f64, lon: f64) -> Value {
@@ -151,6 +233,7 @@ fn sample_props(kind: &str, s: &Sample, fmt: &dyn Fn(f64) -> String) -> Value {
         "azimuth": round1(s.moon.pos.azimuth),
         "altitude": round1(s.moon.pos.altitude),
         "distance_km": s.stand.map(|st| round1(st.distance_km)),
+        "ground_m": s.stand.and_then(|st| st.ground_m).map(f64::round),
         "illumination": round1(s.moon.illumination * 100.0),
     })
 }
@@ -249,6 +332,49 @@ mod tests {
         // 1000 m rise at 45°: ~1 km away; curvature negligible.
         let d = stand_distance_m(1000.0, 45.0).unwrap();
         assert!((d - 1000.0).abs() < 1.0, "{d}");
+    }
+
+    fn hood() -> Landmark {
+        Landmark {
+            name: "Mount Hood".into(),
+            lat: 45.37362,
+            lon: -121.69591,
+            elevation_m: 3429.0,
+            tz: "America/Los_Angeles".into(),
+        }
+    }
+
+    #[test]
+    fn terrain_on_flat_ground_matches_fixed_elevation() {
+        let flat = |_: f64, _: f64| Ground::Known(800.0);
+        let mut needs = Needs::default();
+        let t = solve_stand(&hood(), Observer::Terrain, 100.0, 5.0, &flat, &mut needs).unwrap();
+        let f = solve_stand(&hood(), Observer::Fixed(800.0 + EYE_HEIGHT_M), 100.0, 5.0, &flat, &mut needs)
+            .unwrap();
+        assert!((t.distance_km - f.distance_km).abs() < 0.05, "{} vs {}", t.distance_km, f.distance_km);
+        assert_eq!(t.ground_m, Some(800.0));
+        assert!(needs.missing.is_empty() && needs.assumed == 0);
+    }
+
+    #[test]
+    fn terrain_settles_on_sloping_ground() {
+        // Ground rises 10 m per km west of the summit (spots are to the west).
+        let slope = |_: f64, lon: f64| Ground::Known(((-121.69591 - lon) * 78.0 * 10.0).max(0.0) + 200.0);
+        let mut needs = Needs::default();
+        let s = solve_stand(&hood(), Observer::Terrain, 90.0, 6.0, &slope, &mut needs).unwrap();
+        let g = s.ground_m.unwrap();
+        // Self-consistent: the distance solved for that ground height is where we are.
+        let d = stand_distance_m(3429.0 - g - EYE_HEIGHT_M, 6.0).unwrap() / 1000.0;
+        assert!((d - s.distance_km).abs() < 0.2, "{d} vs {}", s.distance_km);
+    }
+
+    #[test]
+    fn terrain_reports_missing_tiles() {
+        let tile = TileId { z: 10, x: 1, y: 2 };
+        let pending = |_: f64, _: f64| Ground::Pending(tile);
+        let mut needs = Needs::default();
+        assert!(solve_stand(&hood(), Observer::Terrain, 90.0, 6.0, &pending, &mut needs).is_some());
+        assert!(needs.missing.contains(&tile) && needs.assumed == 1);
     }
 
     #[test]

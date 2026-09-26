@@ -64,6 +64,9 @@
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }).addTo(map);
     L.control.scale({ imperial: true, metric: true }).addTo(map);
+    map.attributionControl.addAttribution(
+      'Terrain: <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md">Mapzen, AWS</a>'
+    );
     map.on("click", (e) => onClick(e.latlng.lat, e.latlng.lng));
     // The container may be resized by the layout after first paint.
     new ResizeObserver(() => map.invalidateSize()).observe(el);
@@ -85,8 +88,6 @@
     if (sheetObserver) sheetObserver.disconnect();
     sheetObserver = null;
     const apply = (h) => {
-      // On wide screens the sheet floats beside the content; no inset needed.
-      if (window.matchMedia("(min-width: 900px)").matches) h = 0;
       const delta = h - sheetInset;
       sheetInset = h;
       document.documentElement.style.setProperty("--sheet-h", `${h}px`);
@@ -205,9 +206,11 @@
     return t;
   }
 
+  /// 12-hour wall-clock time in `tz`, e.g. "7:45 PM".
   function formatTime(ms, tz) {
     const w = wallClock(tz, ms);
-    return `${String(w.h).padStart(2, "0")}:${String(w.mi).padStart(2, "0")}`;
+    const h24 = w.h % 24; // some engines report midnight as 24
+    return `${h24 % 12 || 12}:${String(w.mi).padStart(2, "0")} ${h24 < 12 ? "AM" : "PM"}`;
   }
 
   function zoneAbbrev(ms, tz) {
@@ -241,6 +244,13 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  /// GET a URL's body as bytes (terrain tiles; cached by the service worker).
+  async function fetchBytes(url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`${url}: ${res.status}`);
+    return new Uint8Array(await res.arrayBuffer());
+  }
+
   /// Nominatim lookup (online only). Resolves to JSON {name, lat, lon, ele} or null.
   /// Called on explicit submit only, per the Nominatim usage policy.
   async function search(q) {
@@ -263,6 +273,7 @@
   window.azimuthGlue = {
     update,
     trackSheet,
+    mapZoom: () => (map ? map.getZoom() : 9),
     zonedTime,
     formatTime,
     zoneAbbrev,
@@ -270,6 +281,7 @@
     timeZones,
     isValidZone,
     download,
+    fetchBytes,
     search,
   };
 })();

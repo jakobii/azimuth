@@ -1,6 +1,7 @@
 use crate::astro::Crossing;
 use crate::glue;
-use crate::plan::{self, Align, Inputs, Landmark, Plan, Sample};
+use crate::plan::{self, Align, Inputs, Landmark, Observer, Plan, Sample};
+use crate::terrain::{self, Terrain, TileId, TileState};
 use leptos::html::Div;
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -82,13 +83,17 @@ fn shift_date(date: &str, days: f64) -> String {
     iso[..10].to_string()
 }
 
+async fn fetch_tile(id: TileId) -> Result<terrain::Grid, String> {
+    terrain::decode(&glue::fetch_bytes(&id.url()).await?)
+}
+
 /// Plan wrapped for memoisation: the GeoJSON string is the change signal.
 #[derive(Clone)]
 struct StoredPlan(Arc<Plan>, String);
 
 impl PartialEq for StoredPlan {
     fn eq(&self, other: &Self) -> bool {
-        self.1 == other.1
+        self.1 == other.1 && self.0.missing == other.0.missing && self.0.assumed == other.0.assumed
     }
 }
 
@@ -147,7 +152,11 @@ struct State {
     landmark: RwSignal<Landmark>,
     date: RwSignal<String>,
     minutes: RwSignal<f64>,
+    /// Elevation used when `auto_elev` is off.
     observer_elev: RwSignal<f64>,
+    /// Look up the ground under each standing spot from terrain tiles.
+    auto_elev: RwSignal<bool>,
+    terrain: RwSignal<Terrain>,
     align: RwSignal<Align>,
     picking: RwSignal<bool>,
     tool: RwSignal<Option<Tool>>,
@@ -163,6 +172,8 @@ impl State {
         let date = RwSignal::new(today);
         let minutes = RwSignal::new((now_min / 5.0).round() * 5.0);
         let observer_elev = RwSignal::new(500.0_f64);
+        let auto_elev = RwSignal::new(true);
+        let terrain = RwSignal::new(Terrain::default());
         let align = RwSignal::new(Align::Center);
 
         let tz = Memo::new(move |_| landmark.with(|l| l.tz.clone()));
@@ -171,7 +182,11 @@ impl State {
             let d = date.get();
             Inputs {
                 landmark: landmark.get(),
-                observer_elev_m: observer_elev.get(),
+                observer: if auto_elev.get() {
+                    Observer::Terrain
+                } else {
+                    Observer::Fixed(observer_elev.get())
+                },
                 align: align.get(),
                 day_start: glue::zoned_time(&d, 0.0, &tz),
                 day_end: glue::zoned_time(&d, 1440.0, &tz),
@@ -180,7 +195,7 @@ impl State {
         });
         let computed = Memo::new(move |_| {
             let inp = inputs.get();
-            let plan = plan::compute(&inp);
+            let plan = terrain.with(|t| plan::compute(&inp, &|lat, lon| t.ground(lat, lon)));
             let tz = inp.landmark.tz.clone();
             let fmt = move |t: f64| glue::format_time(t, &tz);
             let gj = plan::to_geojson(&inp, &plan, &fmt).to_string();
@@ -192,6 +207,8 @@ impl State {
             date,
             minutes,
             observer_elev,
+            auto_elev,
+            terrain,
             align,
             picking: RwSignal::new(false),
             tool: RwSignal::new(None),
@@ -215,6 +232,50 @@ impl State {
         self.minutes.set(((t - start) / 60_000.0).round().clamp(0.0, 1439.0));
     }
 
+    /// Fetch terrain tiles the latest plan asked for; each arrival re-solves.
+    fn load_terrain(self) {
+        let wanted: Vec<TileId> = self.computed.with(|c| c.0.missing.iter().copied().collect());
+        let new: Vec<TileId> = self
+            .terrain
+            .with_untracked(|t| wanted.into_iter().filter(|id| t.state(*id).is_none()).collect());
+        if new.is_empty() {
+            return;
+        }
+        self.terrain.update(|t| new.iter().for_each(|id| t.set(*id, TileState::Loading)));
+        for id in new {
+            leptos::task::spawn_local(async move {
+                let state = match fetch_tile(id).await {
+                    Ok(grid) => TileState::Ready(grid),
+                    Err(_) => TileState::Failed,
+                };
+                self.terrain.update(|t| t.set(id, state));
+            });
+        }
+    }
+
+    /// Set the landmark's elevation from terrain: the highest point within
+    /// `radius_m` of where it was placed. With `move_pin`, the landmark also
+    /// moves onto that high point, so a tap near a peak lands on the peak.
+    fn snap_summit(self, radius_m: f64, move_pin: bool, on_done: impl FnOnce(bool) + 'static) {
+        let (lat, lon) = self.landmark.with_untracked(|l| (l.lat, l.lon));
+        let (id, px, py) = terrain::locate(lat, lon, terrain::SUMMIT_ZOOM);
+        let radius = (radius_m / terrain::pixel_m(lat, terrain::SUMMIT_ZOOM)).round().max(1.0) as usize;
+        leptos::task::spawn_local(async move {
+            let Ok(grid) = fetch_tile(id).await else { return on_done(false) };
+            let (elevation, bx, by) = terrain::local_max(&grid, px, py, radius);
+            // Only if the landmark hasn't moved on while we were fetching.
+            self.landmark.update(|l| {
+                if l.lat == lat && l.lon == lon {
+                    l.elevation_m = elevation.round();
+                    if move_pin {
+                        (l.lat, l.lon) = terrain::pixel_latlon(id, bx, by);
+                    }
+                }
+            });
+            on_done(true);
+        });
+    }
+
     fn toggle(self, tool: Tool) {
         self.tool.update(|t| *t = if *t == Some(tool) { None } else { Some(tool) });
     }
@@ -235,6 +296,10 @@ pub fn App() -> impl IntoView {
                 l.lat = lat;
                 l.lon = lon;
             });
+            // A fingertip's width (~12 screen px) at the current zoom, so a
+            // tap anywhere on a peak's top finds it; capped for wide views.
+            let radius_m = (12.0 * terrain::pixel_m(lat, glue::map_zoom().round() as u8)).clamp(100.0, 2000.0);
+            st.snap_summit(radius_m, true, |_| {});
             st.tool.set(Some(Tool::Place));
         } else {
             st.tool.set(None);
@@ -249,6 +314,8 @@ pub fn App() -> impl IntoView {
             glue::update(&el, &gj, lat, lon, &on_click);
         }
     });
+
+    Effect::new(move |_| st.load_terrain());
 
     // Tell the map how much of it the sheet covers.
     let sheet_el = NodeRef::<leptos::html::Section>::new();
@@ -281,8 +348,10 @@ pub fn App() -> impl IntoView {
         <main class="app" on:keydown=move |ev| if ev.key() == "Escape" { st.tool.set(None) }>
             <div class="map-wrap">
                 <div class="map" class:picking=move || st.picking.get() node_ref=map_el></div>
-                <StatusChip st=st />
-                <MapKey />
+                <div class="overlay-left">
+                    <StatusChip st=st />
+                    <MapKey />
+                </div>
                 <Show when=move || st.picking.get()>
                     <div class="banner">
                         "Tap the map to place the landmark"
@@ -447,10 +516,7 @@ fn PlaceSheet(st: State) -> impl IntoView {
         leptos::task::spawn_local(async move {
             match glue::search(&q).await {
                 Ok(Some(hit)) => {
-                    search_msg.set(match hit.ele {
-                        Some(_) => None,
-                        None => Some("No elevation on record — set it below.".into()),
-                    });
+                    search_msg.set(None);
                     landmark.update(|l| {
                         l.name = hit.name;
                         l.lat = hit.lat;
@@ -459,6 +525,15 @@ fn PlaceSheet(st: State) -> impl IntoView {
                             l.elevation_m = e;
                         }
                     });
+                    if hit.ele.is_none() {
+                        st.snap_summit(100.0, false, move |ok| {
+                            search_msg.set(Some(if ok {
+                                "Elevation estimated from terrain.".into()
+                            } else {
+                                "No elevation on record — set it below.".into()
+                            }))
+                        });
+                    }
                 }
                 Ok(None) => search_msg.set(Some("No match.".into())),
                 Err(e) => search_msg.set(Some(e)),
@@ -588,8 +663,17 @@ fn TimeSheet(st: State) -> impl IntoView {
     let events = move || st.computed.with(|c| c.0.events.clone());
     view! {
         <div class="clock">
-            <span class="time">{move || st.fmt(st.inputs.with(|i| i.selected))}</span>
-            <small>{move || glue::zone_abbrev(st.inputs.with(|i| i.selected), &st.tz.get())}</small>
+            {move || {
+                // Big digits, with "PM PDT" set small beside them.
+                let t = st.inputs.with(|i| i.selected);
+                let time = st.fmt(t);
+                let (digits, period) = time.split_once(' ').unwrap_or((&time, ""));
+                let small = format!("{period} {}", glue::zone_abbrev(t, &st.tz.get()));
+                view! {
+                    <span class="time">{digits.to_string()}</span>
+                    <small>{small}</small>
+                }
+            }}
         </div>
         <input
             type="range"
@@ -685,7 +769,13 @@ fn MoonSheet(st: State) -> impl IntoView {
                     <dt>"Stand"</dt>
                     <dd>
                         {match s.stand {
-                            Some(p) => format!("{:.1} km from summit · {:.5}, {:.5}", p.distance_km, p.lat, p.lon),
+                            Some(p) => {
+                                let ground = p
+                                    .ground_m
+                                    .map(|g| format!(" · ground {g:.0} m"))
+                                    .unwrap_or_default();
+                                format!("{:.1} km from summit{ground} · {:.5}, {:.5}", p.distance_km, p.lat, p.lon)
+                            }
                             None if m.pos.altitude < 0.0 => "Moon is below the horizon".into(),
                             None => "No spot within range".into(),
                         }}
@@ -695,13 +785,37 @@ fn MoonSheet(st: State) -> impl IntoView {
                 </dl>
             }
         }}
+        <TerrainStatus st=st />
         <HourTable st=st />
         <button type="button" class="primary" on:click=download>
             "Download GeoJSON"
         </button>
         <p class="hint">
-            "Terrain is not modelled — check that nothing blocks the view."
+            "Ground heights come from terrain, but ridges in between aren't checked — make sure nothing blocks the view."
         </p>
+    }
+}
+
+/// Whether standing spots are using real ground heights yet.
+#[component]
+fn TerrainStatus(st: State) -> impl IntoView {
+    move || {
+        if !st.auto_elev.get() {
+            return None;
+        }
+        let loading = st.terrain.with(|t| t.loading());
+        let assumed = st.computed.with(|c| c.0.assumed);
+        let msg = if loading > 0 {
+            "Loading terrain…".to_string()
+        } else if assumed > 0 {
+            format!(
+                "Terrain unavailable for some spots (offline?) — assuming {:.0} m ground there.",
+                plan::FALLBACK_GROUND_M
+            )
+        } else {
+            return None;
+        };
+        Some(view! { <p class="hint">{msg}</p> })
     }
 }
 
@@ -710,19 +824,40 @@ fn SetupSheet(st: State) -> impl IntoView {
     let zones = glue::time_zones();
     view! {
         <label>
-            "Your elevation (m)"
-            <input
-                type="number"
-                inputmode="decimal"
-                step="1"
-                prop:value=move || st.observer_elev.get().to_string()
-                on:change=move |ev| {
-                    if let Some(v) = parse_f64(&ev) {
-                        st.observer_elev.set(v);
-                    }
-                }
-            />
+            "Your elevation"
+            <select
+                prop:value=move || if st.auto_elev.get() { "auto" } else { "fixed" }
+                on:change=move |ev| st.auto_elev.set(event_target_value(&ev) == "auto")
+            >
+                <option value="auto">"Ground at each spot (terrain)"</option>
+                <option value="fixed">"Fixed elevation"</option>
+            </select>
         </label>
+        <Show
+            when=move || !st.auto_elev.get()
+            fallback=|| {
+                view! {
+                    <p class="hint">
+                        "Looks up the ground under every standing spot, plus 1.7 m eye height. Use Fixed for a tower or rooftop."
+                    </p>
+                }
+            }
+        >
+            <label>
+                "Elevation (m above sea level)"
+                <input
+                    type="number"
+                    inputmode="decimal"
+                    step="1"
+                    prop:value=move || st.observer_elev.get().to_string()
+                    on:change=move |ev| {
+                        if let Some(v) = parse_f64(&ev) {
+                            st.observer_elev.set(v);
+                        }
+                    }
+                />
+            </label>
+        </Show>
         <label>
             "Alignment"
             <select

@@ -4,6 +4,10 @@ const PRECACHE = __PRECACHE__;
 const SHELL = "azimuth-shell-__VERSION__";
 const TILES = "azimuth-tiles-v1";
 const MAX_TILES = 4000;
+// Elevation tiles (AWS Terrain Tiles) used for ground heights and summits.
+const TERRAIN = "azimuth-terrain-v1";
+const MAX_TERRAIN = 1500;
+const TERRAIN_PREFIX = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -18,7 +22,7 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== SHELL && k !== TILES).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => ![SHELL, TILES, TERRAIN].includes(k)).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -29,7 +33,9 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
 
   if (url.hostname === "tile.openstreetmap.org") {
-    event.respondWith(tile(req, event));
+    event.respondWith(tile(req, event, TILES, MAX_TILES));
+  } else if (req.url.startsWith(TERRAIN_PREFIX)) {
+    event.respondWith(tile(req, event, TERRAIN, MAX_TERRAIN));
   } else if (url.origin === self.location.origin) {
     event.respondWith(shell(req));
   }
@@ -52,28 +58,28 @@ async function shell(req) {
   }
 }
 
-// Map tiles: cache first. Only tiles you've viewed are stored — the OSM tile
-// policy forbids bulk prefetching.
-async function tile(req, event) {
-  const cache = await caches.open(TILES);
+// Map and terrain tiles: cache first. Only tiles actually used are stored —
+// the OSM tile policy forbids bulk prefetching.
+async function tile(req, event, name, max) {
+  const cache = await caches.open(name);
   const hit = await cache.match(req);
   if (hit) return hit;
   const res = await fetch(req);
   if (res.ok) {
-    event.waitUntil(cache.put(req, res.clone()).then(() => trim(cache)));
+    event.waitUntil(cache.put(req, res.clone()).then(() => trim(cache, name, max)));
   }
   return res;
 }
 
-let trimming = false;
-async function trim(cache) {
-  if (trimming) return;
-  trimming = true;
+const trimming = new Set();
+async function trim(cache, name, max) {
+  if (trimming.has(name)) return;
+  trimming.add(name);
   try {
     const keys = await cache.keys();
-    const excess = keys.length - MAX_TILES;
+    const excess = keys.length - max;
     for (let i = 0; i < excess; i++) await cache.delete(keys[i]);
   } finally {
-    trimming = false;
+    trimming.delete(name);
   }
 }

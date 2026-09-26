@@ -2,6 +2,7 @@ mod app;
 mod astro;
 mod glue;
 mod plan;
+mod terrain;
 
 fn main() {
     console_error_panic_hook::set_once();
